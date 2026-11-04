@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# WhatsApp session (anyone with this can access your WhatsApp)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Your data: contacts, numbers, messages
+data.json
+state.json
+
+# Old backup (has hardcoded numbers)
+bot.old.js
+
+# Secrets and logs
+.env
+*.log
+npm-debug.log*
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/

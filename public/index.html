@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WA Bot</title>
+<style>
+:root{--bg:#f6f7f5;--card:#fff;--ink:#17201b;--mute:#66726b;--line:#dde2de;--accent:#1f7a4d;--accent-ink:#fff;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#121714;--card:#1a211d;--ink:#e8eee9;--mute:#93a099;--line:#2b352f;--accent:#4cc38a;--accent-ink:#0b1a12;--bad:#f2766d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+h1{font-size:22px;margin:0}
+h2{font-size:16px;margin:0 0 12px}
+.pill{padding:3px 10px;border-radius:99px;background:var(--line);font-size:13px}
+.pill.ok{background:var(--accent);color:var(--accent-ink)}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+textarea{width:100%;min-height:60px;resize:vertical}
+input[type=text],input[type=tel]{flex:1;min-width:140px}
+button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:7px 13px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.del{color:var(--bad)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.item{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-of-type{border-top:0}
+.item small,.mute{color:var(--mute)}
+.days label{margin-right:8px;white-space:nowrap}
+.empty{color:var(--mute);padding:6px 0}
+.log div{padding:3px 0;font-size:13px;border-top:1px solid var(--line)}
+.log .bad{color:var(--bad)}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:8px;display:none}
+.stack{display:grid;gap:8px}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>WhatsApp bot</h1>
+    <div class="row">
+      <span class="pill" id="status">…</span>
+      <button id="pause"></button>
+    </div>
+  </header>
+  <p class="mute" style="margin:0">Scheduled messages and auto-replies. Times are IST. Runs only while <code>node server.js</code> is running.</p>
+
+  <section>
+    <h2>Contacts</h2>
+    <div class="row">
+      <input type="text" id="cName" placeholder="Name (e.g. Sakti)">
+      <input type="tel" id="cNum" placeholder="Number (10 digits, or with country code)">
+      <button class="primary" onclick="addContact()">Add contact</button>
+    </div>
+    <div id="contacts"></div>
+  </section>
+
+  <section>
+    <h2>Scheduled messages</h2>
+    <div class="stack">
+      <div class="row">
+        <select id="sContact"></select>
+        <input type="time" id="sTime" value="10:00">
+      </div>
+      <div class="days" id="sDays"></div>
+      <textarea id="sText" placeholder="Message to send"></textarea>
+      <div><button class="primary" onclick="addSchedule()">Add schedule</button></div>
+    </div>
+    <div id="schedules"></div>
+  </section>
+
+  <section>
+    <h2>Auto-replies</h2>
+    <p class="mute" style="margin-top:0">If an incoming message contains any of the words, the bot replies. Separate words with <code>|</code>. Use <code>^ok$</code> to match only "ok".</p>
+    <div class="stack">
+      <div class="row">
+        <select id="rContact"></select>
+        <input type="text" id="rWords" placeholder="Words, e.g. thanks|thank you">
+      </div>
+      <input type="text" id="rReply" placeholder="Reply">
+      <div><button class="primary" onclick="addRule()">Add auto-reply</button></div>
+    </div>
+    <div id="rules"></div>
+  </section>
+
+    <section>
+    <h2>Commands</h2>
+    <p class="mute" style="margin-top:0">Send the command from your WhatsApp "Message yourself" chat. The bot sends the message to the chosen contact. Use <code>{time}</code> to insert the current time. <code>/cmds</code> lists all commands.</p>
+    <div class="stack">
+      <div class="row">
+        <input type="text" id="kCmd" placeholder="/login">
+        <select id="kContact"></select>
+      </div>
+      <input type="text" id="kText" placeholder="Message, e.g. Logged in at {time}">
+      <div><button class="primary" onclick="addCommand()">Add command</button></div>
+    </div>
+    <div id="commands"></div>
+  </section>
+
+  <section>
+    <h2>Send now</h2>
+    <div class="stack">
+      <select id="nContact"></select>
+      <textarea id="nText" placeholder="Message to send immediately"></textarea>
+      <div><button class="primary" onclick="sendNow()">Send message</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Settings</h2>
+    <div class="row">
+      <label for="delay">Random delay before scheduled sends (seconds, up to)</label>
+      <input type="number" id="delay" min="0" max="900" style="width:90px">
+      <button onclick="saveSettings()">Save</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Activity</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const DAYS = [['1','Mon'],['2','Tue'],['3','Wed'],['4','Thu'],['5','Fri'],['6','Sat'],['0','Sun']];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let S = null;
+
+$('sDays').innerHTML = DAYS.map(([v, n]) =>
+  `<label><input type="checkbox" value="${v}" ${v !== '0' ? 'checked' : ''}> ${n}</label>`).join('');
+
+function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2500); }
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(d.error || 'Something went wrong'); throw new Error(d.error); }
+  await load();
+  return d;
+}
+
+const cName = id => (S.contacts.find(c => c.id === id) || { name: id === 'all' ? 'Any saved contact' : 'Deleted contact' }).name;
+
+function fillSelect(id, withAll) {
+  const el = $(id), prev = el.value;
+  const opts = (withAll ? '<option value="all">Any saved contact</option>' : '') +
+    S.contacts.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if (el.dataset.o !== opts) { el.innerHTML = opts; el.dataset.o = opts; if ([...el.options].some(o => o.value === prev)) el.value = prev; }
+}
+
+function render() {
+  $('status').textContent = S.status;
+  $('status').className = 'pill' + (S.status === 'ready' ? ' ok' : '');
+  $('pause').textContent = S.pausedToday ? 'Resume today' : 'Pause today';
+  $('pause').className = S.pausedToday ? 'primary' : '';
+  fillSelect('sContact'); fillSelect('rContact', true); fillSelect('nContact'); fillSelect('kContact');
+  if (document.activeElement !== $('delay')) $('delay').value = S.settings.delayMaxSec;
+
+  $('contacts').innerHTML = S.contacts.map(c =>
+    `<div class="item"><div>${esc(c.name)} <small>+${esc(c.number)}</small></div><button class="del" onclick="del('contacts','${c.id}')">Delete</button></div>`
+  ).join('') || '<div class="empty">No contacts yet. Add one above.</div>';
+
+  $('schedules').innerHTML = S.schedules.map(s => {
+    const d = s.days.length ? DAYS.filter(([v]) => s.days.includes(Number(v)) || s.days.includes(v)).map(x => x[1]).join(', ') : 'Every day';
+    return `<div class="item"><div><b>${esc(cName(s.contactId))}</b> at ${esc(s.time)} <small>${d}</small><br>${esc(s.text)}</div>
+      <div class="row"><label><input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggle('${s.id}',this.checked)"> On</label>
+      <button class="del" onclick="del('schedules','${s.id}')">Delete</button></div></div>`;
+  }).join('') || '<div class="empty">No schedules yet.</div>';
+
+  $('rules').innerHTML = S.rules.map(r =>
+    `<div class="item"><div><b>${esc(cName(r.contactId))}</b> <small>when message has</small> ${esc(r.words)}<br>→ ${esc(r.reply)}</div>
+     <button class="del" onclick="del('rules','${r.id}')">Delete</button></div>`
+  ).join('') || '<div class="empty">No auto-replies yet.</div>';
+
+  $('commands').innerHTML = (S.commands || []).map(k =>
+  `<div class="item"><div><b>${esc(k.cmd)}</b> <small>→ ${esc(cName(k.contactId))}</small><br>${esc(k.text)}</div>
+   <button class="del" onclick="del('commands','${k.id}')">Delete</button></div>`
+  ).join('') || '<div class="empty">No commands yet.</div>';
+
+  $('log').innerHTML = S.logs.map(l => `<div class="${l.ok ? '' : 'bad'}"><span class="mute">${esc(l.t)}</span> ${esc(l.m)}</div>`).join('')
+    || '<div class="empty">Nothing yet.</div>';
+}
+
+async function load() { S = await (await fetch('/api/state')).json(); render(); }
+
+const addContact = async () => { await api('POST', '/api/contacts', { name: $('cName').value, number: $('cNum').value }); $('cName').value = $('cNum').value = ''; toast('Contact added'); };
+const addSchedule = async () => {
+  const days = [...document.querySelectorAll('#sDays input:checked')].map(i => Number(i.value));
+  await api('POST', '/api/schedules', { contactId: $('sContact').value, time: $('sTime').value, days, text: $('sText').value });
+  $('sText').value = ''; toast('Schedule added');
+};
+
+const addCommand = async () => { await api('POST', '/api/commands', { cmd: $('kCmd').value, contactId: $('kContact').value, text: $('kText').value }); $('kCmd').value = $('kText').value = ''; toast('Command added'); };
+
+const addRule = async () => { await api('POST', '/api/rules', { contactId: $('rContact').value, words: $('rWords').value, reply: $('rReply').value }); $('rWords').value = $('rReply').value = ''; toast('Auto-reply added'); };
+const sendNow = async () => { await api('POST', '/api/send-now', { contactId: $('nContact').value, text: $('nText').value }); $('nText').value = ''; toast('Sending. Check Activity.'); };
+const del = (kind, id) => api('DELETE', `/api/${kind}/${id}`);
+const toggle = (id, enabled) => api('PUT', `/api/schedules/${id}`, { enabled });
+const saveSettings = async () => { await api('POST', '/api/settings', { delayMaxSec: $('delay').value }); toast('Settings saved'); };
+$('pause').onclick = () => api('POST', '/api/pause-today', { on: !S.pausedToday });
+
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>

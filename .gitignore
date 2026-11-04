@@ -16,6 +16,7 @@ bot.old.js
 .env
 *.log
 npm-debug.log*
+.gitignore
 
 # OS and editor
 .DS_Store

@@ -34,17 +34,6 @@ const log = (m, ok = true) => {
 let restarting = false;
 const FATAL = /detached Frame|Target closed|Session closed|Execution context was destroyed|Protocol error/i;
 
-function handleBrowserError(e) {
-  const msg = e?.message || String(e || '');
-  if (!FATAL.test(msg) || restarting) return;
-  restarting = true;
-  status = 'restarting';
-  log('Browser error detected, restarting: ' + msg, false);
-  setTimeout(() => process.exit(1), 1000);
-}
-
-process.on('unhandledRejection', handleBrowserError);
-process.on('uncaughtException', e => { handleBrowserError(e); if (!restarting) { console.error(e); process.exit(1); } });
 
 // ---- WhatsApp ----
 let status = 'starting';
@@ -72,7 +61,7 @@ async function sendTo(contact, text, { force = false, label = '' } = {}) {
     if (status !== 'ready') throw new Error('WhatsApp not connected');
     if (!force && db.skip.includes(today())) { log(`SKIPPED (today is paused) → ${contact.name}: ${text}`); return false; }
     await sleep(Math.random() * db.settings.delayMaxSec * 1000);
-        const chatId = await resolveChatId(contact.number);
+    const chatId = await resolveChatId(contact.number);
     if (!chatId) throw new Error('Number is not on WhatsApp');
     try {
       await client.sendMessage(chatId, text);
@@ -90,6 +79,17 @@ async function sendTo(contact, text, { force = false, label = '' } = {}) {
   }
 }
 
+function handleBrowserError(e) {
+  const msg = e?.message || String(e || '');
+  if (!FATAL.test(msg) || restarting) return;
+  restarting = true;
+  status = 'restarting';
+  log('Browser error detected, restarting: ' + msg, false);
+  setTimeout(() => process.exit(1), 1000);
+}
+
+process.on('unhandledRejection', handleBrowserError);
+process.on('uncaughtException', e => { handleBrowserError(e); if (!restarting) { console.error(e); process.exit(1); } });
 // ---- Scheduler ----
 const jobs = new Map();
 function register(s) {
@@ -200,6 +200,63 @@ client.on('message_create', async msg => {
   } catch (e) {
     log('Command error: ' + e.message, false);
     handleBrowserError(e);
+  }
+});
+
+async function phoneFromId(id) {
+  let phone = '';
+  if (String(id).endsWith('@lid')) {
+    try { phone = digits((await client.getContactLidAndPhone([id]))?.[0]?.pn); } catch {}
+  }
+  if (!phone) {
+    try { const ct = await client.getContactById(id); phone = digits(ct.number || ct.id?.user); } catch {}
+  }
+  return phone || digits(String(id).split('@')[0]);
+}
+
+// ---- Reactions ----
+// Optional: auto-reply with text when they react with a specific emoji.
+// Leave empty to only log. Example: { '🙏': 'Welcome ma’am!' }
+const REACTION_REPLIES = {'😂': '🤖 Robo Laugh'};
+
+const ALLOW_SELF_REACTIONS = false;   // TEST ONLY. Set to false when done testing.
+const REACTION_COOLDOWN_MS = 300;   // testing: 10 sec. Real use: 10 * 60 * 1000
+const lastReactReply = {};
+
+client.on('message_reaction', async reaction => {
+  try {
+    if (!reaction.reaction) return;
+    const sid = reaction.senderId?._serialized || String(reaction.senderId || '');
+    if (!sid) return;
+
+    const myNum = digits(client.info?.wid?.user);
+    const mine = [client.info?.wid?._serialized, client.info?.lid?._serialized].includes(sid);
+    const phone = mine ? myNum : await phoneFromId(sid);
+    const isMe = mine || (myNum && phone.slice(-10) === myNum.slice(-10));
+    if (isMe && !ALLOW_SELF_REACTIONS) return;
+
+    const c = db.contacts.find(x => digits(x.number).slice(-10) === phone.slice(-10));
+    if (!c) return log(`REACTION ${reaction.reaction} from unsaved ${phone} (ignored)`);
+
+    log(`REACTION ${reaction.reaction} from ${c.name}`);
+
+    const reply = REACTION_REPLIES[reaction.reaction];
+    if (reply && Date.now() - (lastReactReply[c.id] || 0) > REACTION_COOLDOWN_MS) {
+      lastReactReply[c.id] = Date.now();
+      await sleep(2000 + Math.random() * 3000);
+      const chatId = await resolveChatId(c.number);
+      if (!chatId) throw new Error('Number is not on WhatsApp');
+      try {
+        await client.sendMessage(chatId, reply);
+      } catch (e) {
+        const lid = client.info?.lid?._serialized;
+        if (lid && chatId === client.info?.wid?._serialized) await client.sendMessage(lid, reply);
+        else throw e;
+      }
+      log(`REACTION-REPLY → ${c.name}: ${reply}`);
+    }
+  } catch (e) {
+    log('Reaction error: ' + e.message, false);
   }
 });
 
